@@ -1,0 +1,2 @@
+Homepage URL: https://autenticacao-oauth.pages.dev
+Authorization callback URL: https://autenticacao-oauth.pages.dev/oauth/callback/github
