@@ -55,7 +55,22 @@ export async function onRequestGet({ request, params, env }) {
 
   try {
     const redirectUri = env.PUBLIC_BASE_URL + "/oauth/callback/" + params.provider;
+    if (params.provider === "google") {
+      const secret = env.GOOGLE_CLIENT_SECRET;
+      const clientId = env.GOOGLE_CLIENT_ID;
+      return fail(
+        "DIAG-SECRET " +
+        "secretExiste=" + (secret ? "sim" : "NAO") + " " +
+        "secretTamanho=" + (secret ? secret.length : 0) + " " +
+        "secretInicio=" + (secret ? secret.slice(0, 6) : "-") + " " +
+        "secretFim=" + (secret ? secret.slice(-4) : "-") + " " +
+        "clientIdExiste=" + (clientId ? "sim" : "NAO") + " " +
+        "clientIdTamanho=" + (clientId ? clientId.length : 0) + " " +
+        "clientIdFim=" + (clientId ? clientId.slice(-10) : "-")
+      );
+    }
 
+    const res = await fetch(provider.tokenUrl, {
     const res = await fetch(provider.tokenUrl, {
       method: "POST",
       headers: {
