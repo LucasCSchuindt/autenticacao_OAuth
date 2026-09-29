@@ -14,13 +14,22 @@ export async function onRequestGet({ request, params, env }) {
   if (!provider) return new Response("Not found", { status: 404 });
 
   const url = new URL(request.url);
-  if (url.searchParams.has("error")) return fail();
+  if (url.searchParams.has("error")) {
+    console.error("FAIL-1: error param presente");
+    return fail();
+  }
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-  if (!code || !state) return fail();
+  if (!code || !state) {
+    console.error("FAIL-2: code ou state ausente");
+    return fail();
+  }
 
   const txId = getCookie(request, "__Host-oauth-tx");
-  if (!txId) return fail();
+  if (!txId) {
+    console.error("FAIL-3: cookie __Host-oauth-tx ausente na requisicao");
+    return fail();
+  }
 
   // Busca E apaga em uma operação só: uso único garantido
   const now = Math.floor(Date.now() / 1000);
@@ -29,8 +38,14 @@ export async function onRequestGet({ request, params, env }) {
      WHERE id_hash = ?1 AND expires_at > ?2 RETURNING *`
   ).bind(await sha256Base64Url(txId), now).first();
 
-  if (!tx || tx.provider !== params.provider) return fail();
-  if ((await sha256Base64Url(state)) !== tx.state_hash) return fail();
+  if (!tx || tx.provider !== params.provider) {
+    console.error("FAIL-4: transacao nao encontrada, expirada ou provider errado", { encontrou: !!tx, providerEsperado: params.provider, providerSalvo: tx ? tx.provider : null });
+    return fail();
+  }
+  if ((await sha256Base64Url(state)) !== tx.state_hash) {
+    console.error("FAIL-5: state nao confere com o hash salvo");
+    return fail();
+  }
 
   try {
     // troca do código por tokens (servidor -> provedor)
@@ -49,7 +64,10 @@ export async function onRequestGet({ request, params, env }) {
         code_verifier: tx.code_verifier,
       }),
     });
-    if (!res.ok) return fail(502);
+    if (!res.ok) {
+      console.error("FAIL-6: troca de token falhou, status:", res.status);
+      return fail(502);
+    }
     const tokens = await res.json();
 
     const identity =
@@ -80,7 +98,8 @@ export async function onRequestGet({ request, params, env }) {
     headers.append("Set-Cookie", clearTxCookie());
     headers.append("Set-Cookie", sessionCookie(sessionId));
     return new Response(null, { status: 302, headers });
-  } catch {
-    return fail(401); // nunca logue o erro com tokens/corpo
+  } catch (e) {
+    console.error("FAIL-7: excecao no try (troca de token ou validacao de identidade):", e.message, e.stack);
+    return fail(401);
   }
 }
