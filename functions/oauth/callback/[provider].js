@@ -56,4 +56,4 @@ export async function onRequestGet({ request, params, env }) {
     });
     if (!res.ok) {
       const bodyText = await res.text();
-      return fail("FAIL-7
+      return fail("FAIL-7");
