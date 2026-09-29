@@ -63,4 +63,76 @@ export async function onRequestGet({ request, params, env }) {
       const secretFim = secret ? secret.slice(-4) : "-";
       const clientIdExiste = clientId ? "sim" : "NAO";
       const clientIdTamanho = clientId ? clientId.length : 0;
-      const
+      const clientIdFim = clientId ? clientId.slice(-10) : "-";
+      const msg = "DIAG-SECRET secretExiste=" + secretExiste +
+        " secretTamanho=" + secretTamanho +
+        " secretInicio=" + secretInicio +
+        " secretFim=" + secretFim +
+        " clientIdExiste=" + clientIdExiste +
+        " clientIdTamanho=" + clientIdTamanho +
+        " clientIdFim=" + clientIdFim;
+      return fail(msg);
+    }
+
+    const redirectUri = env.PUBLIC_BASE_URL + "/oauth/callback/" + params.provider;
+
+    const res = await fetch(provider.tokenUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json",
+      },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: code,
+        redirect_uri: redirectUri,
+        client_id: provider.clientId(env),
+        client_secret: provider.clientSecret(env),
+        code_verifier: tx.code_verifier,
+      }),
+    });
+
+    if (!res.ok) {
+      const bodyText = await res.text();
+      return fail("FAIL-7 token exchange status=" + res.status + " corpo=" + bodyText.slice(0, 400), 502);
+    }
+
+    const tokens = await res.json();
+
+    let identity;
+    if (params.provider === "google") {
+      identity = await verifyGoogleIdToken(tokens.id_token, {
+        clientId: env.GOOGLE_CLIENT_ID,
+        nonce: tx.nonce,
+      });
+    } else {
+      identity = await fetchGithubIdentity(tokens, env);
+    }
+
+    const sessionId = randomBase64Url();
+    const sessionHash = await sha256Base64Url(sessionId);
+
+    await env.DB.prepare(
+      "INSERT INTO sessions (id_hash, issuer, subject, email, display_name, expires_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
+    ).bind(
+      sessionHash,
+      identity.issuer,
+      identity.subject,
+      identity.email,
+      identity.displayName,
+      now + 28800,
+      now
+    ).run();
+
+    const headers = new Headers({
+      "Location": env.PUBLIC_BASE_URL + "/",
+      "Cache-Control": "no-store",
+    });
+    headers.append("Set-Cookie", clearTxCookie());
+    headers.append("Set-Cookie", sessionCookie(sessionId));
+
+    return new Response(null, { status: 302, headers: headers });
+  } catch (e) {
+    return fail("FAIL-8 excecao=" + e.message, 401);
+  }
+}
