@@ -1,21 +1,45 @@
 <!doctype html>
 <html lang="pt-BR">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="/styles.css">
-    <title>Laboratório de autenticação</title>
-  </head>
-  <body>
-    <main>
-<h1>Laboratório de autenticação</h1>
-<p id="status">A sessão ainda não foi consultada.</p>
-<a href="/oauth/login/google">Entrar com Google</a>
-<a href="/oauth/login/github">Entrar com GitHub</a>
-<form method="post" action="/oauth/logout">
-  <button type="submit">Sair</button>
-</form>
-<script src="/app.js"></script>
-    </main>
-  </body>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Laboratório de autenticação</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="console">
+    <header class="console__header">
+      <p class="console__tag">sistema de sessão</p>
+      <h1>Laboratório de autenticação</h1>
+    </header>
+
+    <section class="panel" aria-live="polite">
+      <div class="panel__row">
+        <span class="dot" id="statusDot"></span>
+        <p id="status">consultando sessão&hellip;</p>
+      </div>
+    </section>
+
+    <section class="actions">
+      <p class="actions__label">entrar com</p>
+      <div class="actions__buttons">
+        <a class="btn" href="/oauth/login/google">Google</a>
+        <a class="btn" href="/oauth/login/github">GitHub</a>
+      </div>
+
+      <form method="post" action="/oauth/logout" class="logout-form">
+        <button type="submit" class="btn btn--ghost">Sair</button>
+      </form>
+    </section>
+
+    <footer class="console__footer">
+      <p>Sessão local via cookie opaco &middot; nenhum token chega ao navegador</p>
+    </footer>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
 </html>
