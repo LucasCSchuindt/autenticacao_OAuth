@@ -3,8 +3,8 @@ import { getCookie, clearTxCookie, sessionCookie } from "../../_shared/cookies.j
 import { getProvider, fetchGithubIdentity } from "../../_shared/providers.js";
 import { verifyGoogleIdToken } from "../../_shared/oidc.js";
 
-const fail = (reason, status = 400) =>
-  new Response("Falha na autenticação. Motivo: " + reason, {
+const fail = (status = 400) =>
+  new Response("Falha na autenticação.", {
     status,
     headers: { "Cache-Control": "no-store", "Set-Cookie": clearTxCookie() },
   });
@@ -14,39 +14,79 @@ export async function onRequestGet({ request, params, env }) {
   if (!provider) return new Response("Not found", { status: 404 });
 
   const url = new URL(request.url);
-  if (url.searchParams.has("error")) return fail("FAIL-1 error param presente: " + url.searchParams.get("error"));
+  if (url.searchParams.has("error")) return fail();
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-  if (!code || !state) return fail("FAIL-2 code ou state ausente");
+  if (!code || !state) return fail();
 
   const txId = getCookie(request, "__Host-oauth-tx");
-  if (!txId) return fail("FAIL-3 cookie __Host-oauth-tx ausente na requisicao");
+  if (!txId) return fail();
 
   const now = Math.floor(Date.now() / 1000);
-  const computedHash = await sha256Base64Url(txId);
+  const idHash = await sha256Base64Url(txId);
 
-  // DIAGNÓSTICO: olhar sem apagar, para ver o que existe de verdade
-  const debugRow = await env.DB.prepare(
-    `SELECT id_hash, provider, expires_at FROM oauth_transactions WHERE id_hash = ?1`
-  ).bind(computedHash).first();
+  // 1) Ler a transação, sem apagar ainda
+  const tx = await env.DB.prepare(
+    `SELECT * FROM oauth_transactions WHERE id_hash = ?1 AND expires_at > ?2`
+  ).bind(idHash, now).first();
 
-  const debugCount = await env.DB.prepare(
-    `SELECT COUNT(*) as n FROM oauth_transactions`
-  ).first();
+  if (!tx) return fail();
 
-  if (!debugRow) {
-    return fail(
-      "FAIL-4-DIAG: nenhuma linha com esse id_hash existe no banco. " +
-      "total de linhas na tabela: " + debugCount.n +
-      ". hash calculado (primeiros 10 chars): " + computedHash.slice(0, 10) +
-      ". txId do cookie (primeiros 10 chars): " + txId.slice(0, 10)
-    );
+  // 2) Apagar imediatamente, como instrução separada (uso único garantido)
+  await env.DB.prepare(
+    `DELETE FROM oauth_transactions WHERE id_hash = ?1`
+  ).bind(idHash).run();
+
+  if (tx.provider !== params.provider) return fail();
+  if ((await sha256Base64Url(state)) !== tx.state_hash) return fail();
+
+  try {
+    const res = await fetch(provider.tokenUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: `${env.PUBLIC_BASE_URL}/oauth/callback/${params.provider}`,
+        client_id: provider.clientId(env),
+        client_secret: provider.clientSecret(env),
+        code_verifier: tx.code_verifier,
+      }),
+    });
+    if (!res.ok) return fail(502);
+    const tokens = await res.json();
+
+    const identity =
+      params.provider === "google"
+        ? await verifyGoogleIdToken(tokens.id_token, {
+            clientId: env.GOOGLE_CLIENT_ID,
+            nonce: tx.nonce,
+          })
+        : await fetchGithubIdentity(tokens, env);
+
+    const sessionId = randomBase64Url();
+    await env.DB.prepare(
+      `INSERT INTO sessions
+       (id_hash, issuer, subject, email, display_name, expires_at, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
+    ).bind(
+      await sha256Base64Url(sessionId),
+      identity.issuer, identity.subject,
+      identity.email, identity.displayName,
+      now + 28800, now
+    ).run();
+
+    const headers = new Headers({
+      Location: `${env.PUBLIC_BASE_URL}/`,
+      "Cache-Control": "no-store",
+    });
+    headers.append("Set-Cookie", clearTxCookie());
+    headers.append("Set-Cookie", sessionCookie(sessionId));
+    return new Response(null, { status: 302, headers });
+  } catch {
+    return fail(401);
   }
-
-  return fail(
-    "FAIL-4-DIAG: linha ENCONTRADA. provider=" + debugRow.provider +
-    " expires_at=" + debugRow.expires_at +
-    " agora=" + now +
-    " diferenca_segundos=" + (debugRow.expires_at - now)
-  );
 }
