@@ -54,26 +54,6 @@ export async function onRequestGet({ request, params, env }) {
   }
 
   try {
-    if (params.provider === "google") {
-      const secret = env.GOOGLE_CLIENT_SECRET;
-      const clientId = env.GOOGLE_CLIENT_ID;
-      const secretExiste = secret ? "sim" : "NAO";
-      const secretTamanho = secret ? secret.length : 0;
-      const secretInicio = secret ? secret.slice(0, 6) : "-";
-      const secretFim = secret ? secret.slice(-4) : "-";
-      const clientIdExiste = clientId ? "sim" : "NAO";
-      const clientIdTamanho = clientId ? clientId.length : 0;
-      const clientIdFim = clientId ? clientId.slice(-10) : "-";
-      const msg = "DIAG-SECRET secretExiste=" + secretExiste +
-        " secretTamanho=" + secretTamanho +
-        " secretInicio=" + secretInicio +
-        " secretFim=" + secretFim +
-        " clientIdExiste=" + clientIdExiste +
-        " clientIdTamanho=" + clientIdTamanho +
-        " clientIdFim=" + clientIdFim;
-      return fail(msg);
-    }
-
     const redirectUri = env.PUBLIC_BASE_URL + "/oauth/callback/" + params.provider;
 
     const res = await fetch(provider.tokenUrl, {
