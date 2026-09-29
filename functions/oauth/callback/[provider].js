@@ -3,8 +3,8 @@ import { getCookie, clearTxCookie, sessionCookie } from "../../_shared/cookies.j
 import { getProvider, fetchGithubIdentity } from "../../_shared/providers.js";
 import { verifyGoogleIdToken } from "../../_shared/oidc.js";
 
-const fail = (status = 400) =>
-  new Response("Falha na autenticação.", {
+const fail = (reason, status = 400) =>
+  new Response("Falha na autenticação. Motivo: " + reason, {
     status,
     headers: { "Cache-Control": "no-store", "Set-Cookie": clearTxCookie() },
   });
@@ -14,41 +14,25 @@ export async function onRequestGet({ request, params, env }) {
   if (!provider) return new Response("Not found", { status: 404 });
 
   const url = new URL(request.url);
-  if (url.searchParams.has("error")) {
-    console.error("FAIL-1: error param presente");
-    return fail();
-  }
+  if (url.searchParams.has("error")) return fail("FAIL-1 error param presente: " + url.searchParams.get("error"));
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-  if (!code || !state) {
-    console.error("FAIL-2: code ou state ausente");
-    return fail();
-  }
+  if (!code || !state) return fail("FAIL-2 code ou state ausente");
 
   const txId = getCookie(request, "__Host-oauth-tx");
-  if (!txId) {
-    console.error("FAIL-3: cookie __Host-oauth-tx ausente na requisicao");
-    return fail();
-  }
+  if (!txId) return fail("FAIL-3 cookie __Host-oauth-tx ausente na requisicao");
 
-  // Busca E apaga em uma operação só: uso único garantido
   const now = Math.floor(Date.now() / 1000);
   const tx = await env.DB.prepare(
     `DELETE FROM oauth_transactions
      WHERE id_hash = ?1 AND expires_at > ?2 RETURNING *`
   ).bind(await sha256Base64Url(txId), now).first();
 
-  if (!tx || tx.provider !== params.provider) {
-    console.error("FAIL-4: transacao nao encontrada, expirada ou provider errado", { encontrou: !!tx, providerEsperado: params.provider, providerSalvo: tx ? tx.provider : null });
-    return fail();
-  }
-  if ((await sha256Base64Url(state)) !== tx.state_hash) {
-    console.error("FAIL-5: state nao confere com o hash salvo");
-    return fail();
-  }
+  if (!tx) return fail("FAIL-4a transacao nao encontrada (hash nao bateu ou expirou)");
+  if (tx.provider !== params.provider) return fail("FAIL-4b provider errado: salvo=" + tx.provider + " esperado=" + params.provider);
+  if ((await sha256Base64Url(state)) !== tx.state_hash) return fail("FAIL-5 state nao confere com o hash salvo");
 
   try {
-    // troca do código por tokens (servidor -> provedor)
     const res = await fetch(provider.tokenUrl, {
       method: "POST",
       headers: {
@@ -65,8 +49,8 @@ export async function onRequestGet({ request, params, env }) {
       }),
     });
     if (!res.ok) {
-      console.error("FAIL-6: troca de token falhou, status:", res.status);
-      return fail(502);
+      const bodyText = await res.text();
+      return fail("FAIL-6 troca de token falhou, status " + res.status + " corpo: " + bodyText.slice(0, 300), 502);
     }
     const tokens = await res.json();
 
@@ -78,7 +62,6 @@ export async function onRequestGet({ request, params, env }) {
           })
         : await fetchGithubIdentity(tokens, env);
 
-    // só chegamos aqui com identidade totalmente confirmada
     const sessionId = randomBase64Url();
     await env.DB.prepare(
       `INSERT INTO sessions
@@ -99,7 +82,6 @@ export async function onRequestGet({ request, params, env }) {
     headers.append("Set-Cookie", sessionCookie(sessionId));
     return new Response(null, { status: 302, headers });
   } catch (e) {
-    console.error("FAIL-7: excecao no try (troca de token ou validacao de identidade):", e.message, e.stack);
-    return fail(401);
+    return fail("FAIL-7 excecao: " + e.message, 401);
   }
 }
