@@ -1,1 +1,0 @@
-https://autenticacao-oauth.pages.dev/oauth/callback/google
