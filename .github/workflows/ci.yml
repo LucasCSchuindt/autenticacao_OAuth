@@ -11,7 +11,7 @@ jobs:
       - name: Procura segredos versionados
         run: |
           if git grep -nE "GOCSPX-|client_secret *= *['\"][^'\"]+" -- . ':!*.md' ':!.github/**'; then
-            echo "::error::Possível segredo no repositório"; exit 1
+           echo "::error::Possível segredo no repositório"; exit 1
           fi
       - name: Aplica as migrações D1 em um SQLite local
         run: |
