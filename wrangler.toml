@@ -1,0 +1,8 @@
+name = "autenticacao-oauth"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = "public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "oauth-sessions-lucas"
+database_id = "3f9898db-11a8-420b-8e6d-aea1b1a19663"
