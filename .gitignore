@@ -1,0 +1,24 @@
+# Segredos e variáveis locais (nunca versionar)
+.env
+.env.*
+!.env.example
+.dev.vars
+
+# Cloudflare / Wrangler (estado e banco local)
+.wrangler/
+
+# Dependências
+node_modules/
+
+# Bancos locais de teste
+*.db
+*.sqlite
+
+# Logs
+*.log
+
+# Sistema e editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
