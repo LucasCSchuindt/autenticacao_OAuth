@@ -3,30 +3,47 @@ import { getCookie, clearTxCookie, sessionCookie } from "../../_shared/cookies.j
 import { getProvider, fetchGithubIdentity } from "../../_shared/providers.js";
 import { verifyGoogleIdToken } from "../../_shared/oidc.js";
 
-const fail = (reason, status = 400) =>
-  new Response("Falha na autenticacao. Motivo: " + reason, {
-    status: status,
-    headers: { "Cache-Control": "no-store", "Set-Cookie": clearTxCookie() },
+const GENERIC_MESSAGE = "Falha na autenticação. Volte à página inicial e tente novamente.";
+
+// O motivo real vai só para o log do servidor.
+// O usuário recebe apenas uma mensagem genérica.
+const fail = (reason, status = 400, publicMessage = GENERIC_MESSAGE) => {
+  console.error(`[oauth/callback] ${reason}`);
+  return new Response(publicMessage, {
+    status,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Set-Cookie": clearTxCookie(),
+    },
   });
+};
 
 export async function onRequestGet({ request, params, env }) {
   const provider = getProvider(params.provider);
   if (!provider) return new Response("Not found", { status: 404 });
 
   const url = new URL(request.url);
-  if (url.searchParams.has("error")) {
-    return fail("FAIL-1 error=" + url.searchParams.get("error"));
+
+  // O provedor devolveu erro (ex.: o usuário clicou em "Cancelar")
+  const providerError = url.searchParams.get("error");
+  if (providerError) {
+    const message =
+      providerError === "access_denied"
+        ? "Login cancelado."
+        : GENERIC_MESSAGE;
+    return fail(`provedor retornou error=${providerError}`, 400, message);
   }
 
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   if (!code || !state) {
-    return fail("FAIL-2 code/state ausente");
+    return fail("code ou state ausente");
   }
 
   const txId = getCookie(request, "__Host-oauth-tx");
   if (!txId) {
-    return fail("FAIL-3 cookie ausente");
+    return fail("cookie de transação ausente");
   }
 
   const now = Math.floor(Date.now() / 1000);
@@ -37,24 +54,25 @@ export async function onRequestGet({ request, params, env }) {
   ).bind(idHash, now).first();
 
   if (!tx) {
-    return fail("FAIL-4 transacao nao encontrada no SELECT");
+    return fail("transação não encontrada ou expirada");
   }
 
+  // Uso único: a transação é apagada antes de qualquer outra verificação
   await env.DB.prepare(
     "DELETE FROM oauth_transactions WHERE id_hash = ?1"
   ).bind(idHash).run();
 
   if (tx.provider !== params.provider) {
-    return fail("FAIL-5 provider errado: salvo=" + tx.provider + " esperado=" + params.provider);
+    return fail(`provedor diferente do salvo (salvo=${tx.provider}, recebido=${params.provider})`);
   }
 
   const stateHash = await sha256Base64Url(state);
   if (stateHash !== tx.state_hash) {
-    return fail("FAIL-6 state nao confere");
+    return fail("state não confere");
   }
 
   try {
-    const redirectUri = env.PUBLIC_BASE_URL + "/oauth/callback/" + params.provider;
+    const redirectUri = `${env.PUBLIC_BASE_URL}/oauth/callback/${params.provider}`;
 
     const res = await fetch(provider.tokenUrl, {
       method: "POST",
@@ -64,7 +82,7 @@ export async function onRequestGet({ request, params, env }) {
       },
       body: new URLSearchParams({
         grant_type: "authorization_code",
-        code: code,
+        code,
         redirect_uri: redirectUri,
         client_id: provider.clientId(env),
         client_secret: provider.clientSecret(env),
@@ -74,7 +92,7 @@ export async function onRequestGet({ request, params, env }) {
 
     if (!res.ok) {
       const bodyText = await res.text();
-      return fail("FAIL-7 token exchange status=" + res.status + " corpo=" + bodyText.slice(0, 400), 502);
+      return fail(`troca de código por token falhou (status=${res.status}, corpo=${bodyText.slice(0, 200)})`, 502);
     }
 
     const tokens = await res.json();
@@ -105,14 +123,14 @@ export async function onRequestGet({ request, params, env }) {
     ).run();
 
     const headers = new Headers({
-      "Location": env.PUBLIC_BASE_URL + "/",
+      "Location": `${env.PUBLIC_BASE_URL}/`,
       "Cache-Control": "no-store",
     });
     headers.append("Set-Cookie", clearTxCookie());
     headers.append("Set-Cookie", sessionCookie(sessionId));
 
-    return new Response(null, { status: 302, headers: headers });
+    return new Response(null, { status: 302, headers });
   } catch (e) {
-    return fail("FAIL-8 excecao=" + e.message, 401);
+    return fail(`exceção durante o login: ${e.message}`, 401);
   }
 }
